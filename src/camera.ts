@@ -458,11 +458,11 @@ class Camera extends Element {
         cameraPosition.add(this.focalPointTween.value);
 
         this.entity.setLocalPosition(cameraPosition);
-        
+
         // Apply camera orientation: first set base rotation from azim/elev, then apply roll around view direction
         // Create base rotation from azimuth and elevation (looking at focal point)
         quat.setFromEulerAngles(azimElev.elev, azimElev.azim, 0);
-        
+
         // Apply roll around the forward (view) direction
         if (azimElev.roll !== 0) {
             // Get the forward vector (view direction)
@@ -472,7 +472,7 @@ class Camera extends Element {
             // Combine: base rotation * roll rotation
             quat.mul(rollQuat);
         }
-        
+
         this.entity.setLocalRotation(quat);
 
         this.fitClippingPlanes(this.entity.getLocalPosition(), this.entity.forward);

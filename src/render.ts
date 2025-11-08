@@ -25,7 +25,7 @@ type VideoSettings = {
     transparentBg: boolean;
     showDebug: boolean;
     stereo3d?: boolean;
-    eyeSeparation?: number;	
+    eyeSeparation?: number;
 };
 
 const removeExtension = (filename: string) => {
@@ -141,8 +141,8 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
         events.fire('progressStart', localize('render.render-video'));
 
         // Store original camera for restoration
-        let leftEyeCamera: Entity | null = null;
-        let rightEyeCamera: Entity | null = null;
+        const leftEyeCamera: Entity | null = null;
+        const rightEyeCamera: Entity | null = null;
         const originalCamera = scene.camera;
         const originalCameraPos = new Vec3();
         const originalCameraRot = scene.camera.entity.getRotation().clone();
@@ -247,19 +247,19 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
             const captureStereoView = async (offsetX: number) => {
                 // Store original position
                 const origPos = scene.camera.entity.getPosition().clone();
-                
+
                 // Offset camera position
                 const right = scene.camera.entity.right;
                 const offset = right.clone().mulScalar(offsetX);
                 scene.camera.entity.setPosition(origPos.clone().add(offset));
-                
+
                 // Update camera
                 scene.camera.onUpdate(0);
-                
+
                 // Render
                 scene.lockedRender = true;
                 await postRender();
-                
+
                 const { renderTarget } = scene.camera.entity.camera;
                 const { colorBuffer } = renderTarget;
 
@@ -274,10 +274,10 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
                     data.copyWithin(top, bottom, bottom + width * 4);
                     data.set(line, bottom);
                 }
-                
+
                 // Restore original position
                 scene.camera.entity.setPosition(origPos);
-                
+
                 return new Uint8Array(data);
             };
 

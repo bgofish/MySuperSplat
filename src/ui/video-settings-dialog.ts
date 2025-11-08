@@ -114,8 +114,8 @@ class VideoSettingsDialog extends Container {
         // eye separation (only visible when stereo 3D is enabled)
 
         const eyeSeparationLabel = new Label({ class: 'label', text: localize('video.eyeSeparation') });
-        const eyeSeparationInput = new NumericInput({ 
-            class: 'numeric', 
+        const eyeSeparationInput = new NumericInput({
+            class: 'numeric',
             value: 0.064,  // Default 64mm (average human IPD)
             precision: 3,
             step: 0.001,
@@ -273,15 +273,15 @@ class VideoSettingsDialog extends Container {
 
                     const portrait = portraitBoolean.value;
                     const stereo3d = stereo3dBoolean.value;
-                    
-                    let width = (portrait ? heights : widths)[resolutionSelect.value];
+
+                    const width = (portrait ? heights : widths)[resolutionSelect.value];
                     let height = (portrait ? widths : heights)[resolutionSelect.value];
-                    
+
                     // For stereo 3D top/bottom, double the height to accommodate both views
                     if (stereo3d) {
                         height *= 2;
                     }
-                    
+
                     const frameRate = frameRates[frameRateSelect.value];
                     const bppf = bppfs[bitrateSelect.value] * bbpfFactors[resolutionSelect.value];
                     // bitrate (bps) = 100m * (width × height × frame rate × bppf) / 1m

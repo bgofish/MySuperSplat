@@ -148,19 +148,19 @@ class CameraCsvExporter {
             // Use standard spline interpolation
             times = orderedPoses.map((p: any) => p.frame);
             points = [];
-            
+
             // Unwrap roll angles to prevent interpolation jumps
             // Start by normalizing all rolls to -180 to 180 range
-            let unwrappedRolls = orderedPoses.map((p: any) => {
+            const unwrappedRolls = orderedPoses.map((p: any) => {
                 let r = p.roll || 0;
                 while (r > 180) r -= 360;
                 while (r < -180) r += 360;
                 return r;
             });
-            
+
             // Unwrap to ensure smooth transitions between consecutive keyframes
             for (let i = 1; i < unwrappedRolls.length; i++) {
-                let diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
+                const diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
                 // Take the shortest path
                 if (diff > 180) {
                     unwrappedRolls[i] -= 360;
@@ -168,19 +168,19 @@ class CameraCsvExporter {
                     unwrappedRolls[i] += 360;
                 }
             }
-            
+
             // For looping: adjust the entire sequence so loop closure is also smooth
             // Calculate what the first keyframe "should" be to loop smoothly from the last
             const loopDiff = unwrappedRolls[0] - unwrappedRolls[unwrappedRolls.length - 1];
-            const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] + 
+            const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] +
                 (loopDiff > 180 ? loopDiff - 360 : loopDiff < -180 ? loopDiff + 360 : loopDiff);
             const offset = targetFirstRoll - unwrappedRolls[0];
-            
+
             // Apply offset to all rolls
             for (let i = 0; i < unwrappedRolls.length; i++) {
                 unwrappedRolls[i] += offset;
             }
-            
+
             for (let i = 0; i < orderedPoses.length; ++i) {
                 const p = orderedPoses[i];
                 points.push(p.position.x, p.position.y, p.position.z);
@@ -284,19 +284,19 @@ const registerCameraPosesEvents = (events: Events) => {
                 // Use standard spline interpolation
                 times = orderedPoses.map(p => p.frame);
                 points = [];
-                
+
                 // Unwrap roll angles to prevent interpolation jumps
                 // Start by normalizing all rolls to -180 to 180 range
-                let unwrappedRolls = orderedPoses.map(p => {
+                const unwrappedRolls = orderedPoses.map((p) => {
                     let r = p.roll || 0;
                     while (r > 180) r -= 360;
                     while (r < -180) r += 360;
                     return r;
                 });
-                
+
                 // Unwrap to ensure smooth transitions between consecutive keyframes
                 for (let i = 1; i < unwrappedRolls.length; i++) {
-                    let diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
+                    const diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
                     // Take the shortest path
                     if (diff > 180) {
                         unwrappedRolls[i] -= 360;
@@ -304,19 +304,19 @@ const registerCameraPosesEvents = (events: Events) => {
                         unwrappedRolls[i] += 360;
                     }
                 }
-                
+
                 // For looping: adjust the entire sequence so loop closure is also smooth
                 // Calculate what the first keyframe "should" be to loop smoothly from the last
                 const loopDiff = unwrappedRolls[0] - unwrappedRolls[unwrappedRolls.length - 1];
-                const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] + 
+                const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] +
                     (loopDiff > 180 ? loopDiff - 360 : loopDiff < -180 ? loopDiff + 360 : loopDiff);
                 const offset = targetFirstRoll - unwrappedRolls[0];
-                
+
                 // Apply offset to all rolls
                 for (let i = 0; i < unwrappedRolls.length; i++) {
                     unwrappedRolls[i] += offset;
                 }
-                
+
                 for (let i = 0; i < orderedPoses.length; ++i) {
                     const p = orderedPoses[i];
                     points.push(p.position.x, p.position.y, p.position.z);
@@ -349,7 +349,7 @@ const registerCameraPosesEvents = (events: Events) => {
 
                 // Set the camera FOV and roll separately
                 events.fire('camera.setFov', pose.fov);
-                
+
                 // Set roll directly to bypass wraparound logic
                 isTimelineAnimating = true;
                 const camera = (window as any).scene?.camera;
