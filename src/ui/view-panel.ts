@@ -210,6 +210,28 @@ class ViewPanel extends Container {
         centersSizeRow.append(centersSizeLabel);
         centersSizeRow.append(centersSizeSlider);
 
+        // camera roll
+
+        const cameraRollRow = new Container({
+            class: 'view-panel-row'
+        });
+
+        const cameraRollLabel = new Label({
+            text: localize('options.camera-roll'),
+            class: 'view-panel-row-label'
+        });
+
+        const cameraRollSlider = new SliderInput({
+            class: 'view-panel-row-slider',
+            min: -180,
+            max: 180,
+            precision: 1,
+            value: 0
+        });
+
+        cameraRollRow.append(cameraRollLabel);
+        cameraRollRow.append(cameraRollSlider);
+
         // camera fly speed
 
         const cameraFlySpeedRow = new Container({
@@ -298,6 +320,7 @@ class ViewPanel extends Container {
         this.append(fovRow);
         this.append(shBandsRow);
         this.append(centersSizeRow);
+        this.append(cameraRollRow);
         this.append(cameraFlySpeedRow);
         this.append(outlineSelectionRow);
         this.append(showGridRow);
@@ -367,6 +390,16 @@ class ViewPanel extends Container {
 
         cameraFlySpeedSlider.on('change', (value: number) => {
             events.fire('camera.setFlySpeed', value);
+        });
+
+        // camera roll
+
+        events.on('camera.roll', (value: number) => {
+            cameraRollSlider.value = value;
+        });
+
+        cameraRollSlider.on('change', (value: number) => {
+            events.fire('camera.setRoll', value);
         });
 
         // outline selection

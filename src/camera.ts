@@ -17,6 +17,7 @@ import {
     Entity,
     Picker,
     Plane,
+    Quat,
     Ray,
     RenderTarget,
     Texture,
@@ -49,6 +50,10 @@ const ray = new Ray();
 const vec = new Vec3();
 const vecb = new Vec3();
 const va = new Vec3();
+const upVec = new Vec3();
+const rightVec = new Vec3();
+const quat = new Quat();
+const rollQuat = new Quat();
 
 // modulo dealing with negative numbers
 const mod = (n: number, m: number) => ((n % m) + m) % m;
@@ -57,7 +62,7 @@ class Camera extends Element {
     controller: PointerController;
     entity: Entity;
     focalPointTween = new TweenValue({ x: 0, y: 0.5, z: 0 });
-    azimElevTween = new TweenValue({ azim: 30, elev: -15 });
+    azimElevTween = new TweenValue({ azim: 30, elev: -15, roll: 0 });
     distanceTween = new TweenValue({ distance: 1 });
 
     minElev = -90;
@@ -169,7 +174,7 @@ class Camera extends Element {
         return new Vec3(t.x, t.y, t.z);
     }
 
-    // azimuth, elevation
+    // azimuth, elevation, roll
     get azimElev() {
         return this.azimElevTween.target;
     }
@@ -182,6 +187,10 @@ class Camera extends Element {
         return this.azimElev.elev;
     }
 
+    get roll() {
+        return this.azimElev.roll;
+    }
+
     get distance() {
         return this.distanceTween.target.distance;
     }
@@ -191,18 +200,30 @@ class Camera extends Element {
     }
 
     setAzimElev(azim: number, elev: number, dampingFactorFactor: number = 1) {
+        this.setAzimElevRoll(azim, elev, 0, dampingFactorFactor);
+    }
+
+    setAzimElevRoll(azim: number, elev: number, roll: number = 0, dampingFactorFactor: number = 1) {
         // clamp
         azim = mod(azim, 360);
         elev = Math.max(this.minElev, Math.min(this.maxElev, elev));
+        // Don't normalize roll - preserve unwrapped values for smooth interpolation
 
         const t = this.azimElevTween;
-        t.goto({ azim, elev }, dampingFactorFactor * this.scene.config.controls.dampingFactor);
+        t.goto({ azim, elev, roll }, dampingFactorFactor * this.scene.config.controls.dampingFactor);
 
-        // handle wraparound
+        // handle wraparound for azim
         if (t.source.azim - azim < -180) {
             t.source.azim += 360;
         } else if (t.source.azim - azim > 180) {
             t.source.azim -= 360;
+        }
+
+        // handle wraparound for roll
+        if (t.source.roll - roll < -180) {
+            t.source.roll += 360;
+        } else if (t.source.roll - roll > 180) {
+            t.source.roll -= 360;
         }
 
         // return to perspective mode on rotation
@@ -225,7 +246,7 @@ class Camera extends Element {
         const azim = Math.atan2(-vec.x / l, -vec.z / l) * math.RAD_TO_DEG;
         const elev = Math.asin(vec.y / l) * math.RAD_TO_DEG;
         this.setFocalPoint(target, dampingFactorFactor);
-        this.setAzimElev(azim, elev, dampingFactorFactor);
+        this.setAzimElevRoll(azim, elev, 0, dampingFactorFactor);
         this.setDistance(l / this.sceneRadius * this.fovFactor, dampingFactorFactor);
     }
 
@@ -276,7 +297,7 @@ class Camera extends Element {
         this.fov = config.camera.fov;
 
         // initial camera position and orientation
-        this.setAzimElev(controls.initialAzim, controls.initialElev, 0);
+        this.setAzimElevRoll(controls.initialAzim, controls.initialElev, 0, 0);
         this.setDistance(controls.initialZoom, 0);
 
         // picker
@@ -437,7 +458,22 @@ class Camera extends Element {
         cameraPosition.add(this.focalPointTween.value);
 
         this.entity.setLocalPosition(cameraPosition);
-        this.entity.setLocalEulerAngles(azimElev.elev, azimElev.azim, 0);
+        
+        // Apply camera orientation: first set base rotation from azim/elev, then apply roll around view direction
+        // Create base rotation from azimuth and elevation (looking at focal point)
+        quat.setFromEulerAngles(azimElev.elev, azimElev.azim, 0);
+        
+        // Apply roll around the forward (view) direction
+        if (azimElev.roll !== 0) {
+            // Get the forward vector (view direction)
+            quat.transformVector(Vec3.FORWARD, forwardVec);
+            // Create a rotation around the forward vector
+            rollQuat.setFromAxisAngle(forwardVec, azimElev.roll);
+            // Combine: base rotation * roll rotation
+            quat.mul(rollQuat);
+        }
+        
+        this.entity.setLocalRotation(quat);
 
         this.fitClippingPlanes(this.entity.getLocalPosition(), this.entity.forward);
 
@@ -638,6 +674,7 @@ class Camera extends Element {
             focalPoint: pack3(this.focalPointTween.target),
             azim: this.azim,
             elev: this.elevation,
+            roll: this.roll,
             distance: this.distance,
             fov: this.fov,
             tonemapping: this.tonemapping
@@ -646,7 +683,7 @@ class Camera extends Element {
 
     docDeserialize(settings: any) {
         this.setFocalPoint(new Vec3(settings.focalPoint), 0);
-        this.setAzimElev(settings.azim, settings.elev, 0);
+        this.setAzimElevRoll(settings.azim, settings.elev, settings.roll ?? 0, 0);
         this.setDistance(settings.distance, 0);
         this.fov = settings.fov;
         this.tonemapping = settings.tonemapping;

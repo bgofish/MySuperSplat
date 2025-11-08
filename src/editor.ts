@@ -612,6 +612,32 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
         setFlySpeed(value);
     });
 
+    // camera roll
+
+    const setCameraRoll = (roll: number) => {
+        const camera = scene.camera;
+        if (roll !== camera.roll) {
+            camera.setAzimElevRoll(camera.azim, camera.elevation, roll, 1);
+            // Don't fire camera.roll event during timeline animation to prevent UI feedback
+            if (!events.invoke('camera.isTimelineAnimating')) {
+                // Normalize roll for UI display only (keep camera roll unwrapped)
+                let displayRoll = camera.roll;
+                while (displayRoll > 180) displayRoll -= 360;
+                while (displayRoll < -180) displayRoll += 360;
+                events.fire('camera.roll', displayRoll);
+            }
+        }
+    };
+
+    events.function('camera.roll', () => {
+        return scene.camera.roll;
+    });
+
+    events.on('camera.setRoll', (roll: number) => {
+        setCameraRoll(roll);
+    });
+
+
     // outline selection
 
     let outlineSelection = false;

@@ -82,11 +82,20 @@ const calculateCircularInterpolation = (poses: any[], totalFrames: number): { ti
 
         const newFov = beforePose.fov + ((afterPose.fov || 65) - (beforePose.fov || 65)) * t;
 
+        // Interpolate roll (shortest path)
+        const beforeRoll = beforePose.roll || 0;
+        const afterRoll = afterPose.roll || 0;
+        let rollDiff = afterRoll - beforeRoll;
+        if (rollDiff > 180) rollDiff -= 360;
+        if (rollDiff < -180) rollDiff += 360;
+        const newRoll = beforeRoll + rollDiff * t;
+
         interpolatedTimes.push(frame);
         interpolatedPoints.push(
             newPosition.x, newPosition.y, newPosition.z,
             newTarget.x, newTarget.y, newTarget.z,
-            newFov
+            newFov,
+            newRoll
         );
     }
 
@@ -139,11 +148,45 @@ class CameraCsvExporter {
             // Use standard spline interpolation
             times = orderedPoses.map((p: any) => p.frame);
             points = [];
+            
+            // Unwrap roll angles to prevent interpolation jumps
+            // Start by normalizing all rolls to -180 to 180 range
+            let unwrappedRolls = orderedPoses.map((p: any) => {
+                let r = p.roll || 0;
+                while (r > 180) r -= 360;
+                while (r < -180) r += 360;
+                return r;
+            });
+            
+            // Unwrap to ensure smooth transitions between consecutive keyframes
+            for (let i = 1; i < unwrappedRolls.length; i++) {
+                let diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
+                // Take the shortest path
+                if (diff > 180) {
+                    unwrappedRolls[i] -= 360;
+                } else if (diff < -180) {
+                    unwrappedRolls[i] += 360;
+                }
+            }
+            
+            // For looping: adjust the entire sequence so loop closure is also smooth
+            // Calculate what the first keyframe "should" be to loop smoothly from the last
+            const loopDiff = unwrappedRolls[0] - unwrappedRolls[unwrappedRolls.length - 1];
+            const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] + 
+                (loopDiff > 180 ? loopDiff - 360 : loopDiff < -180 ? loopDiff + 360 : loopDiff);
+            const offset = targetFirstRoll - unwrappedRolls[0];
+            
+            // Apply offset to all rolls
+            for (let i = 0; i < unwrappedRolls.length; i++) {
+                unwrappedRolls[i] += offset;
+            }
+            
             for (let i = 0; i < orderedPoses.length; ++i) {
                 const p = orderedPoses[i];
                 points.push(p.position.x, p.position.y, p.position.z);
                 points.push(p.target.x, p.target.y, p.target.z);
                 points.push(p.fov || 65);
+                points.push(unwrappedRolls[i]); // Use unwrapped roll
             }
             console.log(`Using spline interpolation with ${times.length} control points`);
         }
@@ -165,7 +208,8 @@ class CameraCsvExporter {
                 target_x: parseFloat(result[3].toFixed(6)),
                 target_z: parseFloat(result[5].toFixed(6)),
                 target_y: parseFloat(result[4].toFixed(6)),
-                fov: parseFloat((result[6] || 65).toFixed(3))
+                fov: parseFloat((result[6] || 65).toFixed(3)),
+                roll: parseFloat((result[7] || 0).toFixed(3))
             });
         }
 
@@ -175,7 +219,7 @@ class CameraCsvExporter {
 
     private generateCsv(): string {
         // Explicitly define column order
-        const headers = ['frame', 'time', 'position_x', 'position_z', 'position_y', 'target_x', 'target_z', 'target_y', 'fov'];
+        const headers = ['frame', 'time', 'position_x', 'position_z', 'position_y', 'target_x', 'target_z', 'target_y', 'fov', 'roll'];
 
         if (this.data.length === 0) {
             return `${headers.join(',')}\n`;
@@ -205,13 +249,15 @@ type Pose = {
     frame: number,
     position: Vec3,
     target: Vec3,
-    fov?: number
+    fov?: number,
+    roll?: number
 };
 
 const registerCameraPosesEvents = (events: Events) => {
     const poses: Pose[] = [];
     let interpolationMode: 'spline' | 'circular' = 'spline';
     const csvExporter = new CameraCsvExporter(events);
+    let isTimelineAnimating = false;
 
     let onTimelineChange: (frame: number) => void;
 
@@ -238,19 +284,53 @@ const registerCameraPosesEvents = (events: Events) => {
                 // Use standard spline interpolation
                 times = orderedPoses.map(p => p.frame);
                 points = [];
+                
+                // Unwrap roll angles to prevent interpolation jumps
+                // Start by normalizing all rolls to -180 to 180 range
+                let unwrappedRolls = orderedPoses.map(p => {
+                    let r = p.roll || 0;
+                    while (r > 180) r -= 360;
+                    while (r < -180) r += 360;
+                    return r;
+                });
+                
+                // Unwrap to ensure smooth transitions between consecutive keyframes
+                for (let i = 1; i < unwrappedRolls.length; i++) {
+                    let diff = unwrappedRolls[i] - unwrappedRolls[i - 1];
+                    // Take the shortest path
+                    if (diff > 180) {
+                        unwrappedRolls[i] -= 360;
+                    } else if (diff < -180) {
+                        unwrappedRolls[i] += 360;
+                    }
+                }
+                
+                // For looping: adjust the entire sequence so loop closure is also smooth
+                // Calculate what the first keyframe "should" be to loop smoothly from the last
+                const loopDiff = unwrappedRolls[0] - unwrappedRolls[unwrappedRolls.length - 1];
+                const targetFirstRoll = unwrappedRolls[unwrappedRolls.length - 1] + 
+                    (loopDiff > 180 ? loopDiff - 360 : loopDiff < -180 ? loopDiff + 360 : loopDiff);
+                const offset = targetFirstRoll - unwrappedRolls[0];
+                
+                // Apply offset to all rolls
+                for (let i = 0; i < unwrappedRolls.length; i++) {
+                    unwrappedRolls[i] += offset;
+                }
+                
                 for (let i = 0; i < orderedPoses.length; ++i) {
                     const p = orderedPoses[i];
                     points.push(p.position.x, p.position.y, p.position.z);
                     points.push(p.target.x, p.target.y, p.target.z);
                     points.push(p.fov || 65); // Default FOV if not specified
+                    points.push(unwrappedRolls[i]); // Use unwrapped roll
                 }
                 console.log(`Using spline interpolation with ${times.length} control points`);
             }
 
-            // interpolate camera positions, camera target positions, and FOV
+            // interpolate camera positions, camera target positions, FOV, and roll
             const spline = CubicSpline.fromPointsLooping(duration, times, points, events.invoke('timeline.smoothness'));
             const result: number[] = [];
-            const pose = { position: new Vec3(), target: new Vec3(), fov: 65 };
+            const pose = { position: new Vec3(), target: new Vec3(), fov: 65, roll: 0 };
 
             // handle application update tick
             onTimelineChange = (frame: number) => {
@@ -259,15 +339,26 @@ const registerCameraPosesEvents = (events: Events) => {
                 // evaluate the spline at current time
                 spline.evaluate(time, result);
 
-                // set camera pose and FOV
+                // set camera pose, FOV, and roll
                 pose.position.set(result[0], result[1], result[2]);
                 pose.target.set(result[3], result[4], result[5]);
                 pose.fov = result[6] || 65; // Extract interpolated FOV
+                pose.roll = result[7] || 0; // Use interpolated roll directly (already unwrapped)
 
                 events.fire('camera.setPose', pose, 0);
 
-                // Set the camera FOV separately if needed
+                // Set the camera FOV and roll separately
                 events.fire('camera.setFov', pose.fov);
+                
+                // Set roll directly to bypass wraparound logic
+                isTimelineAnimating = true;
+                const camera = (window as any).scene?.camera;
+                if (camera) {
+                    // Directly set the tween target without wraparound adjustment
+                    camera.azimElevTween.target.roll = pose.roll;
+                    camera.azimElevTween.source.roll = pose.roll;
+                }
+                isTimelineAnimating = false;
             };
         } else {
             onTimelineChange = null;
@@ -341,6 +432,10 @@ const registerCameraPosesEvents = (events: Events) => {
         return interpolationMode;
     });
 
+    events.function('camera.isTimelineAnimating', () => {
+        return isTimelineAnimating;
+    });
+
     events.on('camera.setInterpolationMode', (mode: 'spline' | 'circular') => {
         interpolationMode = mode;
         rebuildSpline(); // Rebuild with new interpolation mode
@@ -352,16 +447,18 @@ const registerCameraPosesEvents = (events: Events) => {
     });
 
     events.on('timeline.add', (frame: number) => {
-        // get the current camera pose and FOV
+        // get the current camera pose, FOV, and roll
         const pose = events.invoke('camera.getPose');
         const currentFov = events.invoke('camera.fov') || 65;
+        const currentRoll = events.invoke('camera.roll') || 0;
 
         addPose({
             name: `camera_${poses.length}`,
             frame,
             position: pose.position,
             target: pose.target,
-            fov: currentFov
+            fov: currentFov,
+            roll: currentRoll
         });
     });
 
@@ -469,7 +566,8 @@ const registerCameraPosesEvents = (events: Events) => {
                     frame: pose.frame,
                     position: pack3(pose.position),
                     target: pack3(pose.target),
-                    fov: pose.fov || 65
+                    fov: pose.fov || 65,
+                    roll: pose.roll || 0
                 };
             })
         }];
@@ -489,7 +587,8 @@ const registerCameraPosesEvents = (events: Events) => {
                 frame: docPose.frame ?? (index * fps),
                 position: new Vec3(docPose.position),
                 target: new Vec3(docPose.target),
-                fov: docPose.fov || 65
+                fov: docPose.fov || 65,
+                roll: docPose.roll || 0
             });
         });
     });

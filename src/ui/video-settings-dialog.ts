@@ -1,4 +1,4 @@
-import { BooleanInput, Button, Container, Element, Label, SelectInput } from '@playcanvas/pcui';
+import { BooleanInput, Button, Container, Element, Label, SelectInput, NumericInput } from '@playcanvas/pcui';
 
 import { Events } from '../events';
 import { VideoSettings } from '../render';
@@ -103,6 +103,35 @@ class VideoSettingsDialog extends Container {
         portraitRow.append(portraitLabel);
         portraitRow.append(portraitBoolean);
 
+        // stereoscopic 3D (top/bottom)
+
+        const stereo3dLabel = new Label({ class: 'label', text: localize('video.stereo3d') });
+        const stereo3dBoolean = new BooleanInput({ class: 'boolean', value: false });
+        const stereo3dRow = new Container({ class: 'row' });
+        stereo3dRow.append(stereo3dLabel);
+        stereo3dRow.append(stereo3dBoolean);
+
+        // eye separation (only visible when stereo 3D is enabled)
+
+        const eyeSeparationLabel = new Label({ class: 'label', text: localize('video.eyeSeparation') });
+        const eyeSeparationInput = new NumericInput({ 
+            class: 'numeric', 
+            value: 0.064,  // Default 64mm (average human IPD)
+            precision: 3,
+            step: 0.001,
+            min: 0.001,
+            max: 1.0
+        });
+        const eyeSeparationRow = new Container({ class: 'row' });
+        eyeSeparationRow.append(eyeSeparationLabel);
+        eyeSeparationRow.append(eyeSeparationInput);
+        eyeSeparationRow.hidden = true; // Hidden by default
+
+        // Show/hide eye separation based on stereo 3D toggle
+        stereo3dBoolean.on('change', (value: boolean) => {
+            eyeSeparationRow.hidden = !value;
+        });
+
         // transparent background
 
         const transparentBgLabel = new Label({ class: 'label', text: localize('video.transparentBg') });
@@ -130,6 +159,8 @@ class VideoSettingsDialog extends Container {
         content.append(frameRateRow);
         content.append(bitrateRow);
         content.append(portraitRow);
+        content.append(stereo3dRow);
+        content.append(eyeSeparationRow);
         content.append(transparentBgRow);
         content.append(showDebugRow);
 
@@ -241,8 +272,16 @@ class VideoSettingsDialog extends Container {
                     };
 
                     const portrait = portraitBoolean.value;
-                    const width = (portrait ? heights : widths)[resolutionSelect.value];
-                    const height = (portrait ? widths : heights)[resolutionSelect.value];
+                    const stereo3d = stereo3dBoolean.value;
+                    
+                    let width = (portrait ? heights : widths)[resolutionSelect.value];
+                    let height = (portrait ? widths : heights)[resolutionSelect.value];
+                    
+                    // For stereo 3D top/bottom, double the height to accommodate both views
+                    if (stereo3d) {
+                        height *= 2;
+                    }
+                    
                     const frameRate = frameRates[frameRateSelect.value];
                     const bppf = bppfs[bitrateSelect.value] * bbpfFactors[resolutionSelect.value];
                     // bitrate (bps) = 100m * (width × height × frame rate × bppf) / 1m
@@ -256,7 +295,9 @@ class VideoSettingsDialog extends Container {
                         height,
                         bitrate,
                         transparentBg: transparentBgBoolean.value,
-                        showDebug: showDebugBoolean.value
+                        showDebug: showDebugBoolean.value,
+                        stereo3d: stereo3d,
+                        eyeSeparation: stereo3d ? eyeSeparationInput.value : undefined
                     };
 
                     resolve(videoSettings);

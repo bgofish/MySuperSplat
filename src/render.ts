@@ -1,5 +1,5 @@
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
-import { path, Vec3 } from 'playcanvas';
+import { path, Vec3, Entity } from 'playcanvas';
 
 import { ElementType } from './element';
 import { Events } from './events';
@@ -7,6 +7,7 @@ import { PngCompressor } from './png-compressor';
 import { Scene } from './scene';
 import { Splat } from './splat';
 import { localize } from './ui/localization';
+
 type ImageSettings = {
     width: number;
     height: number;
@@ -23,6 +24,8 @@ type VideoSettings = {
     bitrate: number;
     transparentBg: boolean;
     showDebug: boolean;
+    stereo3d?: boolean;
+    eyeSeparation?: number;	
 };
 
 const removeExtension = (filename: string) => {
@@ -137,8 +140,18 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
     events.function('render.video', async (videoSettings: VideoSettings) => {
         events.fire('progressStart', localize('render.render-video'));
 
+        // Store original camera for restoration
+        let leftEyeCamera: Entity | null = null;
+        let rightEyeCamera: Entity | null = null;
+        const originalCamera = scene.camera;
+        const originalCameraPos = new Vec3();
+        const originalCameraRot = scene.camera.entity.getRotation().clone();
+
         try {
-            const { startFrame, endFrame, frameRate, width, height, bitrate, transparentBg, showDebug } = videoSettings;
+            const { startFrame, endFrame, frameRate, width, height, bitrate, transparentBg, showDebug, stereo3d, eyeSeparation } = videoSettings;
+
+            // For stereo 3D, each eye's view is half the total height
+            const renderHeight = stereo3d ? height / 2 : height;
 
             const muxer = new Muxer({
                 target: new ArrayBufferTarget(),
@@ -161,41 +174,48 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
             });
 
             encoder.configure({
-                codec: height < 1080 ? 'avc1.420028' : 'avc1.640033', // H.264 profile low : high
+                codec: height < 1080 ? 'avc1.420028' : 'avc1.640033',
                 width,
                 height,
                 bitrate
             });
 
-            // start rendering to offscreen buffer only
-            scene.camera.startOffscreenMode(width, height);
+            // Setup stereo cameras if needed
+            if (stereo3d && eyeSeparation) {
+                originalCameraPos.copy(scene.camera.entity.getPosition());
+            }
+
+            // start rendering to offscreen buffer
+            scene.camera.startOffscreenMode(width, renderHeight);
             scene.camera.renderOverlays = showDebug;
             if (!transparentBg) {
                 scene.camera.entity.camera.clearColor.copy(events.invoke('bgClr'));
             }
             scene.lockedRenderMode = true;
 
-            // cpu-side buffer to read pixels into
-            const data = new Uint8Array(width * height * 4);
+            // cpu-side buffers
+            const data = new Uint8Array(width * renderHeight * 4);
             const line = new Uint8Array(width * 4);
+            const compositeData = stereo3d ? new Uint8Array(width * height * 4) : null;
 
             // get the list of visible splats
             const splats = (scene.getElementsByType(ElementType.splat) as Splat[]).filter(splat => splat.visible);
 
-            // remember last camera position so we can skip sorting if the camera didn't move
+            // remember last camera position
             const last_pos = new Vec3(0, 0, 0);
             const last_forward = new Vec3(1, 0, 0);
 
             // prepare the frame for rendering
-            const prepareFrame = async (frameTime: number) => {
+            const prepareFrame = async (frameTime: number, cameraEntity?: Entity) => {
                 events.fire('timeline.time', frameTime);
 
-                // manually update the camera so position and rotation are correct
+                // manually update the camera
+                const cam = cameraEntity || scene.camera.entity;
                 scene.camera.onUpdate(0);
 
                 // if the camera didn't move, don't sort
-                const pos = scene.camera.entity.getPosition();
-                const forward = scene.camera.entity.forward;
+                const pos = cam.getPosition();
+                const forward = cam.forward;
                 if (last_pos.equals(pos) && last_forward.equals(forward)) {
                     return;
                 }
@@ -206,23 +226,16 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
 
                 // wait for sorting to complete
                 await Promise.all(splats.map((splat) => {
-                    // create a promise for each splat that will resolve upon sorting complete
                     return new Promise<void>((resolve) => {
                         const { instance } = splat.entity.gsplat;
 
-                        // listen for the sorter to complete
                         const handle = instance.sorter.on('updated', () => {
                             handle.off();
                             resolve();
                         });
 
-                        // manually invoke sort because internally the engine sorts after render the
-                        // scene call is made.
-                        instance.sort(scene.camera.entity);
+                        instance.sort(cam);
 
-                        // in cases where the camera does not move between frames the sorter won't run
-                        // and we need a timeout instead. this is a hack - the engine should allow us to
-                        // know whether the sorter is running or not.
                         setTimeout(() => {
                             resolve();
                         }, 1000);
@@ -230,49 +243,105 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
                 }));
             };
 
-            // capture the current video frame
-            const captureFrame = async (frameTime: number) => {
+            // capture a single view for stereo
+            const captureStereoView = async (offsetX: number) => {
+                // Store original position
+                const origPos = scene.camera.entity.getPosition().clone();
+                
+                // Offset camera position
+                const right = scene.camera.entity.right;
+                const offset = right.clone().mulScalar(offsetX);
+                scene.camera.entity.setPosition(origPos.clone().add(offset));
+                
+                // Update camera
+                scene.camera.onUpdate(0);
+                
+                // Render
+                scene.lockedRender = true;
+                await postRender();
+                
                 const { renderTarget } = scene.camera.entity.camera;
                 const { colorBuffer } = renderTarget;
 
-                // read the rendered frame
-                await colorBuffer.read(0, 0, width, height, { renderTarget, data });
+                // Read the rendered frame
+                await colorBuffer.read(0, 0, width, renderHeight, { renderTarget, data });
 
-                // flip the buffer vertically
-                for (let y = 0; y < height / 2; y++) {
+                // Flip the buffer vertically
+                for (let y = 0; y < renderHeight / 2; y++) {
                     const top = y * width * 4;
-                    const bottom = (height - y - 1) * width * 4;
+                    const bottom = (renderHeight - y - 1) * width * 4;
                     line.set(data.subarray(top, top + width * 4));
                     data.copyWithin(top, bottom, bottom + width * 4);
                     data.set(line, bottom);
                 }
+                
+                // Restore original position
+                scene.camera.entity.setPosition(origPos);
+                
+                return new Uint8Array(data);
+            };
 
-                // construct the video frame
-                const videoFrame = new VideoFrame(data, {
-                    format: 'RGBA',
-                    codedWidth: width,
-                    codedHeight: height,
-                    timestamp: Math.floor(1e6 * frameTime),
-                    duration: Math.floor(1e6 / frameRate)
-                });
-                encoder.encode(videoFrame);
-                videoFrame.close();
+            // capture the current video frame (mono or stereo)
+            const captureFrame = async (frameTime: number) => {
+                if (stereo3d && eyeSeparation && compositeData) {
+                    // Capture left eye (top half) - offset left
+                    const leftData = await captureStereoView(-eyeSeparation / 2);
+                    compositeData.set(leftData, 0);
+
+                    // Capture right eye (bottom half) - offset right
+                    const rightData = await captureStereoView(eyeSeparation / 2);
+                    compositeData.set(rightData, width * renderHeight * 4);
+
+                    // Create video frame with composite data
+                    const videoFrame = new VideoFrame(compositeData, {
+                        format: 'RGBA',
+                        codedWidth: width,
+                        codedHeight: height,
+                        timestamp: Math.floor(1e6 * frameTime),
+                        duration: Math.floor(1e6 / frameRate)
+                    });
+                    encoder.encode(videoFrame);
+                    videoFrame.close();
+                } else {
+                    // Standard mono rendering
+                    const { renderTarget } = scene.camera.entity.camera;
+                    const { colorBuffer } = renderTarget;
+
+                    await colorBuffer.read(0, 0, width, renderHeight, { renderTarget, data });
+
+                    // flip the buffer vertically
+                    for (let y = 0; y < renderHeight / 2; y++) {
+                        const top = y * width * 4;
+                        const bottom = (renderHeight - y - 1) * width * 4;
+                        line.set(data.subarray(top, top + width * 4));
+                        data.copyWithin(top, bottom, bottom + width * 4);
+                        data.set(line, bottom);
+                    }
+
+                    const videoFrame = new VideoFrame(data, {
+                        format: 'RGBA',
+                        codedWidth: width,
+                        codedHeight: renderHeight,
+                        timestamp: Math.floor(1e6 * frameTime),
+                        duration: Math.floor(1e6 / frameRate)
+                    });
+                    encoder.encode(videoFrame);
+                    videoFrame.close();
+                }
             };
 
             const animFrameRate = events.invoke('timeline.frameRate');
             const duration = (endFrame - startFrame) / animFrameRate;
 
             for (let frameTime = 0; frameTime <= duration; frameTime += 1.0 / frameRate) {
-                // special case the first frame
-                await prepareFrame(startFrame + frameTime * animFrameRate);
+                await prepareFrame(startFrame + frameTime * animFrameRate, scene.camera.entity);
 
-                // render a frame
-                scene.lockedRender = true;
+                if (!stereo3d) {
+                    // Standard mono render
+                    scene.lockedRender = true;
+                    await postRender();
+                }
 
-                // wait for render to finish
-                await postRender();
-
-                // wait for capture
                 await captureFrame(frameTime);
 
                 events.fire('progressUpdate', {
@@ -286,7 +355,8 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
             muxer.finalize();
 
             // Download
-            downloadFile(muxer.target.buffer, `${removeExtension(splats[0]?.name ?? 'SuperSplat')}-video.mp4`);
+            const suffix = stereo3d ? '-stereo3d-video.mp4' : '-video.mp4';
+            downloadFile(muxer.target.buffer, `${removeExtension(splats[0]?.name ?? 'SuperSplat')}${suffix}`);
 
             // Free resources
             encoder.close();
@@ -303,7 +373,7 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
             scene.camera.renderOverlays = true;
             scene.camera.entity.camera.clearColor.set(0, 0, 0, 0);
             scene.lockedRenderMode = false;
-            scene.forceRender = true;       // camera likely moved, finish with normal render
+            scene.forceRender = true;
 
             events.fire('progressEnd');
         }
