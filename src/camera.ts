@@ -460,23 +460,23 @@ class Camera extends Element {
         this.entity.setLocalPosition(cameraPosition);
 
         // Apply camera orientation: first set base rotation from azim/elev, then apply roll around view direction
-		// Replace the rotation section in your onUpdate method with this code:
+        // Replace the rotation section in your onUpdate method with this code:
 
-		// FIXED ROTATION CODE - First Approach:
-		// Apply camera orientation with proper roll around view direction
+        // FIXED ROTATION CODE - First Approach:
+        // Apply camera orientation with proper roll around view direction
 
-		// Create the base rotation from azimuth and elevation
-		quat.setFromEulerAngles(azimElev.elev, azimElev.azim, 0);
+        // Create the base rotation from azimuth and elevation
+        quat.setFromEulerAngles(azimElev.elev, azimElev.azim, 0);
 
-		// Apply roll as a rotation around the Z-axis (view direction)
-		if (azimElev.roll !== 0) {
-			// Create roll rotation around Z-axis (local forward)
-			rollQuat.setFromEulerAngles(0, 0, azimElev.roll);
-			// Apply roll: quat * rollQuat
-			quat.mul(rollQuat);
-		}
+        // Apply roll as a rotation around the Z-axis (view direction)
+        if (azimElev.roll !== 0) {
+            // Create roll rotation around Z-axis (local forward)
+            rollQuat.setFromEulerAngles(0, 0, azimElev.roll);
+            // Apply roll: quat * rollQuat
+            quat.mul(rollQuat);
+        }
 
-		this.entity.setLocalRotation(quat);
+        this.entity.setLocalRotation(quat);
 
         this.fitClippingPlanes(this.entity.getLocalPosition(), this.entity.forward);
 
