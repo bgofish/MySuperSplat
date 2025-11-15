@@ -11,7 +11,8 @@ class ViewPanel extends Container {
             ...args,
             id: 'view-panel',
             class: 'panel',
-            hidden: true
+            hidden: true,
+            style: 'max-height: 80vh; overflow-y: auto;'
         };
 
         super(args);
@@ -314,6 +315,157 @@ class ViewPanel extends Container {
         showBoundRow.append(showBoundLabel);
         showBoundRow.append(showBoundToggle);
 
+        // background cubemap images
+        const bgImageRow = new Container({
+            class: 'view-panel-row'
+        });
+
+        const bgImageLabel = new Label({
+            text: 'Skybox Cubemap',
+            class: 'view-panel-row-label'
+        });
+
+        const bgImageInputs = new Container({
+            class: 'view-panel-cubemap-inputs'
+        });
+
+        // Store the 6 face URLs
+        const cubemapFaces: { [key: string]: string | null } = {
+            posx: null,
+            negx: null,
+            posy: null,
+            negy: null,
+            posz: null,
+            negz: null
+        };
+
+        // Status display
+        const statusText = document.createElement('div');
+        statusText.className = 'view-panel-cubemap-status';
+        statusText.textContent = 'Select a folder containing cubemap images';
+        statusText.style.fontSize = '11px';
+        statusText.style.color = '#999';
+        statusText.style.marginBottom = '10px';
+
+        // Create folder input
+        const folderInput = document.createElement('input');
+        folderInput.type = 'file';
+        // @ts-ignore - webkitdirectory is not in TypeScript types but works in browsers
+        folderInput.webkitdirectory = true;
+        // @ts-ignore
+        folderInput.directory = true;
+        folderInput.multiple = true;
+        folderInput.style.display = 'none';
+
+        const folderButton = document.createElement('button');
+        folderButton.textContent = 'Select Folder';
+        folderButton.className = 'view-panel-row-button';
+
+        const bgImageClearButton = document.createElement('button');
+        bgImageClearButton.textContent = 'Clear';
+        bgImageClearButton.className = 'view-panel-row-button';
+        bgImageClearButton.style.display = 'none';
+        bgImageClearButton.style.marginTop = '10px';
+
+        folderButton.addEventListener('click', () => {
+            folderInput.click();
+        });
+
+        // Suffix patterns to look for (in order of preference)
+        const suffixPatterns = {
+            posx: ['right', 'posx', 'px', 'pos-x', '+x'],
+            negx: ['left', 'negx', 'nx', 'neg-x', '-x'],
+            posy: ['top', 'up', 'posy', 'py', 'pos-y', '+y'],
+            negy: ['bottom', 'down', 'negy', 'ny', 'neg-y', '-y'],
+            posz: ['front', 'forward', 'posz', 'pz', 'pos-z', '+z'],
+            negz: ['back', 'backward', 'negz', 'nz', 'neg-z', '-z']
+        };
+
+        folderInput.addEventListener('change', (e: Event) => {
+            const target = e.target as HTMLInputElement;
+            const files = Array.from(target.files || []);
+
+            console.log(`Selected ${files.length} files from folder`);
+
+            // Reset faces
+            Object.keys(cubemapFaces).forEach((key) => {
+                cubemapFaces[key] = null;
+            });
+
+            // Try to match files to faces
+            const foundFaces: string[] = [];
+
+            for (const [face, patterns] of Object.entries(suffixPatterns)) {
+                for (const pattern of patterns) {
+                    const matchedFile = files.find((file) => {
+                        const name = file.name.toLowerCase();
+                        const nameWithoutExt = name.substring(0, name.lastIndexOf('.')) || name;
+                        // Check if filename contains or ends with the pattern
+                        return nameWithoutExt.includes(pattern) || nameWithoutExt.endsWith(pattern);
+                    });
+
+                    if (matchedFile) {
+                        console.log(`Matched ${face} to file: ${matchedFile.name}`);
+                        foundFaces.push(face);
+
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            cubemapFaces[face] = event.target?.result as string;
+
+                            // Check if all faces are loaded
+                            const allLoaded = Object.values(cubemapFaces).every(f => f !== null);
+                            if (allLoaded) {
+                                console.log('All 6 cubemap faces loaded from folder');
+                                events.fire('setBackgroundCubemap', { ...cubemapFaces });
+                                bgImageClearButton.style.display = 'inline-block';
+                                statusText.textContent = '✓ Cubemap loaded successfully';
+                                statusText.style.color = '#4CAF50';
+                            } else {
+                                const loaded = Object.values(cubemapFaces).filter(f => f !== null).length;
+                                statusText.textContent = `Loading... ${loaded}/6 faces found`;
+                                statusText.style.color = '#FFA500';
+                            }
+                        };
+                        reader.onerror = () => {
+                            console.error(`Error reading file for ${face}`);
+                        };
+                        reader.readAsDataURL(matchedFile);
+                        break; // Found a match, stop looking for this face
+                    }
+                }
+            }
+
+            if (foundFaces.length === 0) {
+                statusText.textContent = '✗ No cubemap images found in folder';
+                statusText.style.color = '#f44336';
+            } else if (foundFaces.length < 6) {
+                statusText.textContent = `⚠ Only found ${foundFaces.length}/6 faces: ${foundFaces.join(', ')}`;
+                statusText.style.color = '#FFA500';
+            }
+        });
+
+        bgImageClearButton.addEventListener('click', () => {
+            events.fire('clearBackgroundImage');
+
+            // Reset all data
+            Object.keys(cubemapFaces).forEach((key) => {
+                cubemapFaces[key] = null;
+            });
+
+            folderInput.value = '';
+            bgImageClearButton.style.display = 'none';
+            statusText.textContent = 'Select a folder containing cubemap images';
+            statusText.style.color = '#999';
+        });
+
+        bgImageInputs.dom.appendChild(statusText);
+        bgImageInputs.dom.appendChild(folderInput);
+        bgImageInputs.dom.appendChild(folderButton);
+        bgImageInputs.dom.appendChild(bgImageClearButton);
+
+        bgImageRow.append(bgImageLabel);
+        bgImageRow.append(bgImageInputs);
+
         this.append(header);
         this.append(clrRow);
         this.append(tonemappingRow);
@@ -325,6 +477,7 @@ class ViewPanel extends Container {
         this.append(outlineSelectionRow);
         this.append(showGridRow);
         this.append(showBoundRow);
+        this.append(bgImageRow);
 
         // handle panel visibility
 
@@ -472,6 +625,11 @@ class ViewPanel extends Container {
 
         tonemappingSelection.on('change', (value: string) => {
             events.fire('camera.setTonemapping', value);
+        });
+
+        // background image state
+        events.on('backgroundImage.set', (hasImage: boolean) => {
+            bgImageClearButton.style.display = hasImage ? 'inline-block' : 'none';
         });
 
         // tooltips

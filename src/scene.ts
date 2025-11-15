@@ -3,11 +3,16 @@ import {
     EVENT_PRERENDER_LAYER,
     LAYERID_DEPTH,
     SORTMODE_NONE,
+    ADDRESS_CLAMP_TO_EDGE,
+    FILTER_LINEAR,
+    FILTER_LINEAR_MIPMAP_LINEAR,
+    PIXELFORMAT_R8_G8_B8_A8,
     BoundingBox,
     CameraComponent,
     Color,
     Entity,
     Layer,
+    Texture,
     GraphicsDevice
 } from 'playcanvas';
 
@@ -214,6 +219,89 @@ class Scene {
         this.add(this.outline);
         this.underlay = new Underlay();
         this.add(this.underlay);
+
+        // Setup background image event handlers
+        this.setupBackgroundImageHandlers();
+    }
+
+    private setupBackgroundImageHandlers() {
+        // Listen for cubemap background (6 separate images)
+        this.events.on('setBackgroundCubemap', (images: {
+            posx: string, negx: string,
+            posy: string, negy: string,
+            posz: string, negz: string
+        }) => {
+            console.log('setBackgroundCubemap event received', images);
+
+            const loadedImages: { [key: string]: HTMLImageElement } = {};
+            let loadCount = 0;
+            const order = ['posx', 'negx', 'posy', 'negy', 'posz', 'negz'] as const;
+
+            const onAllLoaded = () => {
+                console.log('All 6 images loaded, creating cubemap');
+
+                // Get ordered array of images
+                const imageArray = order.map(face => loadedImages[face]);
+
+                // Get dimensions from first image
+                const width = imageArray[0].width;
+                const height = imageArray[0].height;
+
+                console.log(`Creating cubemap texture: ${width}x${height}`);
+
+                // Create cubemap texture
+                const cubemap = new Texture(this.app.graphicsDevice, {
+                    name: 'skybox',
+                    cubemap: true,
+                    width: width,
+                    height: height,
+                    format: PIXELFORMAT_R8_G8_B8_A8,
+                    mipmaps: false,
+                    minFilter: FILTER_LINEAR,
+                    magFilter: FILTER_LINEAR,
+                    addressU: ADDRESS_CLAMP_TO_EDGE,
+                    addressV: ADDRESS_CLAMP_TO_EDGE
+                });
+
+                // Directly set the image sources using @ts-ignore for _levels
+                // @ts-ignore - accessing private property for direct cubemap setup
+                cubemap._levels = [imageArray];
+                cubemap.upload();
+
+                // Set as skybox
+                this.app.scene.skybox = cubemap;
+                this.app.scene.skyboxMip = 0;
+                this.app.scene.skyboxIntensity = 1;
+
+                console.log('Skybox set successfully');
+                this.events.fire('backgroundImage.set', true);
+                this.forceRender = true;
+            };
+
+            // Load all 6 images
+            order.forEach((face) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = () => {
+                    console.log(`Loaded ${face}: ${img.width}x${img.height}`);
+                    loadedImages[face] = img;
+                    loadCount++;
+                    if (loadCount === 6) {
+                        onAllLoaded();
+                    }
+                };
+                img.onerror = (e) => {
+                    console.error(`Failed to load cubemap face: ${face}`, e);
+                };
+                img.src = images[face as keyof typeof images];
+            });
+        });
+
+        this.events.on('clearBackgroundImage', () => {
+            this.app.scene.skybox = null;
+            this.events.fire('backgroundImage.set', false);
+            this.forceRender = true;
+        });
     }
 
     start() {

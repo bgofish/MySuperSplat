@@ -356,7 +356,6 @@ const localizeInit = () => {
                     'options.locked-color': 'Locked Color',
                     'options.outlier-color': 'Outlier Color',
                     'options.fov': 'Field of View',
-                    'options.camera-roll': 'Camera Roll',
                     'options.sh-bands': 'SH Bands',
                     'options.centers-size': 'Centers Size',
                     'options.outline-selection': 'Outline Selection',
@@ -465,6 +464,9 @@ const localizeInit = () => {
                     'shortcuts.toggle-camera-mode': 'Toggle Camera Mode',
                     'shortcuts.toggle-grid': 'Toggle Grid',
                     'shortcuts.toggle-gizmo-coordinate-space': 'Toggle Gizmo Coordinate Space',
+                    'options.background-image': 'Background Image',
+                    'options.choose-image': 'Choose Image',
+
 
                     // Popup
                     'popup.ok': 'OK',
